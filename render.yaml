@@ -5,3 +5,28 @@ services:
     dockerContext: ./backend
     dockerfilePath: ./backend/Dockerfile
     plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voting-db
+          property: connectionString
+      - key: DATABASE_USERNAME
+        fromDatabase:
+          name: voting-db
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: voting-db
+          property: password
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_SECRET
+        generateValue: true
+      - key: ENCRYPTION_IV
+        generateValue: true
+
+databases:
+  - name: voting-db
+    databaseName: voting_db
+    user: voting_user
+    plan: free
