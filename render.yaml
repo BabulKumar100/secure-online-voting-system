@@ -18,10 +18,6 @@ services:
         fromDatabase:
           name: voting-db
           property: password
-      - key: DATABASE_DIALECT
-        value: org.hibernate.dialect.PostgreSQLDialect
-      - key: DATABASE_DRIVER
-        value: org.postgresql.Driver
       - key: JWT_SECRET
         generateValue: true
       - key: ENCRYPTION_SECRET
