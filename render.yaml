@@ -2,4 +2,6 @@ services:
   - type: web
     name: voting-backend
     env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
     plan: free
