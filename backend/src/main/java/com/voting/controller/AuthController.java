@@ -11,13 +11,13 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "*") // frontend connect ke liye
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:3000"})
 public class AuthController {
 
     @Autowired
     private AuthService authService;
 
-    // ✅ Register API
+    // Register API
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody User user) {
         try {
