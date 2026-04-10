@@ -1,16 +1,17 @@
 package com.voting.service;
 
+import com.voting.model.Candidate;
+import com.voting.model.User;
 import com.voting.model.Vote;
+import com.voting.repository.CandidateRepository;
+import com.voting.repository.UserRepository;
 import com.voting.repository.VoteRepository;
+import com.voting.security.CryptographyService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import javax.crypto.Cipher;
-import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,56 +20,161 @@ import java.util.Map;
 public class VoteService {
 
     @Autowired
-    private VoteRepository repo;
+    private VoteRepository voteRepository;
 
-    @Value("${vote.encryption.secret:0123456789abcdef}")
-    private String secretKey;
+    @Autowired
+    private UserRepository userRepository;
 
-    @Value("${vote.encryption.iv:fedcba9876543210}")
-    private String initVector;
+    @Autowired
+    private CandidateRepository candidateRepository;
 
-    public void saveVote(String candidate) {
-        Vote vote = new Vote();
-        vote.setCandidate(encrypt(candidate));
-        repo.save(vote);
+    @Autowired
+    private CryptographyService cryptographyService;
+
+    /**
+     * Encrypt and save vote with digital signature
+     * CONFIDENTIALITY + INTEGRITY: Vote is encrypted and signed
+     */
+    @Transactional
+    public String saveVote(String userEmail, Long candidateId) throws Exception {
+        User user = userRepository.findFirstByEmail(userEmail.trim().toLowerCase())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Check if user has already voted
+        if (voteRepository.existsByUser(user)) {
+            throw new RuntimeException("You have already voted");
+        }
+
+        Candidate candidate = candidateRepository.findById(candidateId)
+                .orElseThrow(() -> new RuntimeException("Candidate not found"));
+
+        if (!candidate.isActive()) {
+            throw new RuntimeException("Candidate is not active");
+        }
+
+        // Encrypt vote with digital signature
+        CryptographyService.EncryptedVote encryptedVote = cryptographyService.encryptVote(
+                candidate.getName(), user.getEmail()
+        );
+
+        // Generate hash for additional integrity
+        String voteHash = cryptographyService.generateHash(candidate.getName() + user.getEmail());
+
+        // Create and save encrypted vote
+        Vote vote = new Vote(user, candidate, encryptedVote, voteHash);
+        voteRepository.save(vote);
+
+        return "Vote encrypted and saved successfully";
     }
 
-    public Map<String, Long> getResults() {
-        List<Vote> votes = repo.findAll();
-        Map<String, Long> result = new HashMap<>();
+    /**
+     * Get decrypted results (Admin only)
+     */
+    public Map<String, Long> getDecryptedResults() {
+        List<Vote> votes = voteRepository.findAllVerifiedVotes();
+        Map<String, Long> results = new HashMap<>();
 
-        for (Vote v : votes) {
-            String candidate = decrypt(v.getCandidate());
-            result.put(candidate, result.getOrDefault(candidate, 0L) + 1);
+        for (Vote vote : votes) {
+            try {
+                // Create encrypted vote object from stored data
+                CryptographyService.EncryptedVote encryptedVote = new CryptographyService.EncryptedVote(
+                        vote.getEncryptedData(),
+                        vote.getIv(),
+                        vote.getDigitalSignature(),
+                        vote.getCandidate().getName()
+                );
+
+                // Decrypt vote
+                CryptographyService.DecryptedVote decryptedVote = cryptographyService.decryptVote(encryptedVote);
+
+                // Only count votes with valid signatures
+                if (decryptedVote.isSignatureValid()) {
+                    String candidateName = decryptedVote.getCandidateName();
+                    results.put(candidateName, results.getOrDefault(candidateName, 0L) + 1);
+                }
+            } catch (Exception e) {
+                System.err.println("Error decrypting vote: " + e.getMessage());
+            }
         }
+
+        return results;
+    }
+
+    /**
+     * Get all candidates for voting
+     */
+    public List<Candidate> getActiveCandidates() {
+        return candidateRepository.findByActiveTrue();
+    }
+
+    /**
+     * Check if user has voted
+     */
+    public boolean hasUserVoted(String userEmail) {
+        User user = userRepository.findFirstByEmail(userEmail.trim().toLowerCase())
+                .orElse(null);
+        return user != null && voteRepository.existsByUser(user);
+    }
+
+    /**
+     * Get total verified votes count
+     */
+    public long getTotalVotesCount() {
+        return voteRepository.countVerifiedVotes();
+    }
+
+    /**
+     * Verify all vote signatures (Admin function)
+     */
+    public Map<String, Object> verifyAllVotes() {
+        List<Vote> votes = voteRepository.findAll();
+        int validVotes = 0;
+        int invalidVotes = 0;
+
+        for (Vote vote : votes) {
+            try {
+                CryptographyService.EncryptedVote encryptedVote = new CryptographyService.EncryptedVote(
+                        vote.getEncryptedData(),
+                        vote.getIv(),
+                        vote.getDigitalSignature(),
+                        vote.getCandidate().getName()
+                );
+
+                CryptographyService.DecryptedVote decryptedVote = cryptographyService.decryptVote(encryptedVote);
+                
+                if (decryptedVote.isSignatureValid()) {
+                    validVotes++;
+                    vote.setSignatureVerified(true);
+                } else {
+                    invalidVotes++;
+                }
+            } catch (Exception e) {
+                invalidVotes++;
+            }
+        }
+
+        voteRepository.saveAll(votes);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("totalVotes", votes.size());
+        result.put("validVotes", validVotes);
+        result.put("invalidVotes", invalidVotes);
+        result.put("verificationComplete", true);
 
         return result;
     }
 
-    private String encrypt(String value) {
-        try {
-            IvParameterSpec iv = new IvParameterSpec(initVector.getBytes(StandardCharsets.UTF_8));
-            SecretKeySpec skeySpec = new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "AES");
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
-            byte[] encrypted = cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(encrypted);
-        } catch (Exception e) {
-            throw new RuntimeException("Unable to encrypt vote", e);
-        }
-    }
-
-    private String decrypt(String encrypted) {
-        try {
-            IvParameterSpec iv = new IvParameterSpec(initVector.getBytes(StandardCharsets.UTF_8));
-            SecretKeySpec skeySpec = new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "AES");
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
-            byte[] decoded = Base64.getDecoder().decode(encrypted);
-            return new String(cipher.doFinal(decoded), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            throw new RuntimeException("Unable to decrypt vote", e);
-        }
+    /**
+     * Get vote statistics (Public)
+     */
+    public Map<String, Object> getVoteStatistics() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalVotes", getTotalVotesCount());
+        stats.put("candidatesCount", candidateRepository.findByActiveTrue().size());
+        stats.put("systemStatus", "Secure");
+        stats.put("encryptionEnabled", true);
+        stats.put("digitalSignatures", true);
+        return stats;
     }
 }
 

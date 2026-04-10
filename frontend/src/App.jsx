@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import OtpVerification from "./pages/OtpVerification";
+import Voting from "./pages/Voting";
 import Dashboard from "./pages/Dashboard";
 
 // 🔐 Protected Route
@@ -16,8 +18,17 @@ export default function App() {
         {/* Public Routes */}
         <Route path="/" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/otp-verification" element={<OtpVerification />} />
 
-        {/* Protected Route */}
+        {/* Protected Routes */}
+        <Route
+          path="/voting"
+          element={
+            <PrivateRoute>
+              <Voting />
+            </PrivateRoute>
+          }
+        />
         <Route
           path="/dashboard"
           element={

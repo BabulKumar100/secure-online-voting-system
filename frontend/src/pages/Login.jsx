@@ -6,6 +6,8 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const login = async () => {
@@ -14,13 +16,26 @@ export default function Login() {
       return;
     }
 
+    setIsLoading(true);
+    setError("");
+    setMessage("");
+
     try {
       const res = await API.post("/auth/login", { email, password });
-      localStorage.setItem("token", res.data.token);
-      navigate("/dashboard");
+      
+      // Login successful, now need OTP verification
+      setMessage(res.data.message);
+      
+      // Redirect to OTP verification page with email
+      setTimeout(() => {
+        navigate('/otp-verification', { state: { email } });
+      }, 1500);
+      
     } catch (err) {
       const message = err.response?.data?.error || "Unable to login. Check email and password.";
       setError(message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -29,8 +44,9 @@ export default function Login() {
       <div className="auth-card">
         <div className="brand">SecureVote</div>
         <h1>Welcome back</h1>
-        <p className="subtitle">Login to your secure voting account.</p>
+        <p className="subtitle">Login to your secure voting account with 2FA protection.</p>
 
+        {message && <div className="success-message">{message}</div>}
         {error && <div className="alert">{error}</div>}
 
         <label>Email</label>
@@ -49,9 +65,13 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        <button className="primary-button" onClick={login}>
-          Login
+        <button className="primary-button" onClick={login} disabled={isLoading}>
+          {isLoading ? 'Sending OTP...' : 'Login & Send OTP'}
         </button>
+
+        <div className="security-notice">
+          <p>After login, a 6-digit OTP will be sent to your email for verification.</p>
+        </div>
 
         <p className="small-text">
           New here? <Link to="/register">Create an account</Link>

@@ -22,12 +22,17 @@ public class JwtUtil {
                 .compact();
     }
 
-    // ✅ Extract Email
+    // Extract Email
     public String extractEmail(String token) {
         return getClaims(token).getSubject();
     }
 
-    // ✅ Validate Token
+    // Extract Username (alias for extractEmail)
+    public String extractUsername(String token) {
+        return extractEmail(token);
+    }
+
+    // Validate Token
     public boolean validateToken(String token) {
         try {
             getClaims(token);
